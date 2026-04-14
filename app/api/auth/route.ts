@@ -1,5 +1,6 @@
 import { createClient } from '@/utils/supabase/server'
-import { NextResponse } from 'next/server'
+import { PostgrestError } from '@supabase/supabase-js'
+import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
     try {
@@ -14,58 +15,51 @@ export async function POST(request: Request) {
 
         const supabase = await createClient()
 
-        const { data: email, error: rpcError } = await supabase
-            .rpc('get_email_by_username', { p_username: username })
+        // Login menggunakan function login_guru
+        const { data, error } = await supabase
+            .rpc('login_guru', {
+                p_username: username,
+                p_password: password
+            })
+            .single() as { data: any, error: PostgrestError }
 
-        // console.log('=== DEBUG ===')
-        // console.log('1. Username:', username)
-        // console.log('2. Email from RPC:', email)
-        // console.log('3. RPC Error:', rpcError)
-
-        if (rpcError || !email) {
-            console.error('RPC Error:', rpcError?.message)
+        if (error || !data) {
+            console.error('Login error:', error?.message)
             return NextResponse.json(
                 { error: 'Username atau password salah' },
                 { status: 401 }
             )
         }
 
-        // console.log('4. Attempting signIn with email:', email)
-
-        const { data, error: signInError } = await supabase.auth.signInWithPassword({
-            email: email.trim(),
-            password: password.trim(),
-        })
-
-        // console.log('5. SignIn Data:', !!data)
-        // console.log('6. SignIn Error:', signInError?.message)
-        // console.log(`7. Email: ${email} | Password: ${password} | Username: ${username}`)
-
-        if (signInError) {
-            console.error('Sign in error:', signInError)
-            return NextResponse.json(
-                { error: 'Username atau password salah' },
-                { status: 401 }
-            )
-        }
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', data.user.id)
-            .single()
-
-        return NextResponse.json({
+        // Buat response dengan cookie
+        const response = NextResponse.json({
             success: true,
             message: 'Login berhasil',
             user: {
-                id: data.user.id,
-                email: data.user.email,
-                username: profile?.username,
-                full_name: profile?.full_name,
-                role: profile?.role,
+                id: data.user_id,
+                username: data.username,
+                nama_lengkap: data.nama_lengkap,
+                email: data.email,
+                role: data.role,
             },
         })
+
+        // Set cookie untuk session
+        response.cookies.set('user_session', JSON.stringify({
+            id: data.user_id,
+            username: data.username,
+            nama_lengkap: data.nama_lengkap,
+            email: data.email,
+            role: data.role,
+        }), {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 60 * 60 * 24 * 7, // 7 hari
+            path: '/',
+        })
+
+        return response
 
     } catch (error: any) {
         console.error('Auth API error:', error?.message)
@@ -76,34 +70,22 @@ export async function POST(request: Request) {
     }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
     try {
-        const supabase = await createClient()
+        const userSession = request.cookies.get('user_session')
 
-        const { data: { user }, error } = await supabase.auth.getUser()
-
-        if (error || !user) {
+        if (!userSession) {
             return NextResponse.json(
                 { authenticated: false },
                 { status: 401 }
             )
         }
 
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', user.id)
-            .single()
+        const user = JSON.parse(userSession.value)
 
         return NextResponse.json({
             authenticated: true,
-            user: {
-                id: user.id,
-                email: user.email,
-                username: profile?.username,
-                full_name: profile?.full_name,
-                role: profile?.role,
-            },
+            user: user,
         })
 
     } catch (error: any) {
@@ -115,20 +97,17 @@ export async function GET() {
     }
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
     try {
-        const supabase = await createClient()
-
-        const { error } = await supabase.auth.signOut()
-
-        if (error) {
-            throw error
-        }
-
-        return NextResponse.json({
+        const response = NextResponse.json({
             success: true,
             message: 'Logout berhasil',
         })
+
+        // Hapus cookie
+        response.cookies.delete('user_session')
+
+        return response
 
     } catch (error: any) {
         console.error('Logout error:', error?.message)
