@@ -28,7 +28,7 @@ const getOtherMenus = (role: string) => {
 }
 
 interface DashboardBottomNavProps {
-    user: {
+    user?: {
         role: string
     }
 }
