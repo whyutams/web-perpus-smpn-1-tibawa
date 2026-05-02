@@ -38,8 +38,8 @@ export default function ScanPage() {
             const mediaStream = await navigator.mediaDevices.getUserMedia({
                 video: {
                     facingMode: 'environment',
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 }
                 }
             })
 
@@ -49,49 +49,27 @@ export default function ScanPage() {
             if (videoRef.current) {
                 videoRef.current.srcObject = mediaStream
                 
-                // Force attributes for mobile
-                videoRef.current.setAttribute('playsinline', 'true')
-                videoRef.current.setAttribute('autoplay', 'true')
-                videoRef.current.setAttribute('muted', 'true')
-                
-                // Multiple attempts to play video
-                const attemptPlay = async (retries = 3) => {
-                    for (let i = 0; i < retries; i++) {
-                        try {
-                            await videoRef.current?.play()
-                            console.log(`✅ Video playing (attempt ${i + 1})`)
-                            setLoading(false)
-                            
-                            // Start scanning after video confirmed playing
-                            setTimeout(() => {
-                                if (videoRef.current && !videoRef.current.paused) {
-                                    startScanning()
-                                }
-                            }, 600)
-                            return true
-                        } catch (playError) {
-                            console.warn(`Play attempt ${i + 1} failed:`, playError)
-                            if (i < retries - 1) {
-                                await new Promise(resolve => setTimeout(resolve, 500))
-                            }
-                        }
-                    }
-                    return false
-                }
-                
-                // Wait for metadata then play
+                // Tunggu video ready
                 videoRef.current.onloadedmetadata = async () => {
-                    console.log('✅ Metadata loaded')
-                    await attemptPlay()
-                }
-                
-                // Fallback: try play after delay
-                setTimeout(async () => {
-                    if (videoRef.current && videoRef.current.paused) {
-                        console.log('⚠️ Video still paused, forcing play...')
-                        await attemptPlay()
+                    try {
+                        await videoRef.current?.play()
+                        console.log('Camera started')
+                    } catch (playError) {
+                        console.error('Play error:', playError)
+                        // Retry play on mobile
+                        setTimeout(async () => {
+                            try {
+                                await videoRef.current?.play()
+                            } catch (e) {
+                                console.error('Retry play error:', e)
+                            }
+                        }, 500)
                     }
-                }, 1500)
+                    
+                    setTimeout(() => {
+                        startScanning()
+                    }, 500)
+                }
             }
 
         } catch (err: any) {
@@ -108,30 +86,19 @@ export default function ScanPage() {
                 setError('Gagal mengakses kamera. Pastikan browser Anda mendukung akses kamera.')
             }
         } finally {
-            // Don't set loading false here, let play attempt handle it
-            setTimeout(() => {
-                setLoading(false)
-            }, 2000)
+            setLoading(false)
         }
     }
 
     const startScanning = async () => {
         if (!videoRef.current || isScanning) return
 
-        // Ensure video is actually playing
-        if (videoRef.current.paused || videoRef.current.readyState < 2) {
-            console.log('⚠️ Video not ready, waiting...')
-            setTimeout(() => startScanning(), 500)
-            return
-        }
-
         try {
             setIsScanning(true)
-            console.log('✅ Starting scanner...')
             const codeReader = new BrowserMultiFormatReader()
             codeReaderRef.current = codeReader
 
-            // Continuous scanning
+            // Continuous scanning dengan interval
             const scanContinuously = async () => {
                 if (!videoRef.current || !isScanning) return
 
@@ -140,25 +107,29 @@ export default function ScanPage() {
                     
                     if (result) {
                         const scannedCode = result.getText()
-                        console.log('✅ Barcode detected:', scannedCode)
+                        console.log('Barcode detected:', scannedCode)
                         
+                        // Stop scanning
                         stopScanning()
+                        
+                        // Set detected code dan tampilkan modal
                         setDetectedCode(scannedCode)
                         setShowSuccessModal(true)
-                        return
                     }
                 } catch (err) {
+                    // Ignore NotFoundException - ini normal saat belum ada barcode
                     if (!(err instanceof NotFoundException)) {
                         console.error('Scan error:', err)
                     }
-                }
-                
-                // Continue scanning
-                if (isScanning) {
-                    scanIntervalRef.current = setTimeout(scanContinuously, 100)
+                    
+                    // Continue scanning
+                    if (isScanning) {
+                        scanIntervalRef.current = setTimeout(scanContinuously, 100)
+                    }
                 }
             }
 
+            // Mulai continuous scan
             scanContinuously()
 
         } catch (err) {
@@ -191,20 +162,24 @@ export default function ScanPage() {
     }
 
     const handleRetry = () => {
-        setLoading(true)
         startCamera()
     }
 
     const handleSuccessClose = () => {
         setShowSuccessModal(false)
         setDetectedCode('')
+        // Lanjutkan scanning
         setTimeout(() => {
             startScanning()
         }, 300)
     }
 
     const handleProcessBarcode = async () => {
+        // TODO: Implement barcode processing logic
+        // Bisa redirect ke halaman peminjaman dengan kode buku
         console.log('Processing barcode:', detectedCode)
+        
+        // Contoh: redirect ke peminjaman dengan query
         window.location.href = `/dashboard/peminjaman?kode=${detectedCode}`
     }
 
@@ -216,7 +191,6 @@ export default function ScanPage() {
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-20">
                     <Loader2 className="w-12 h-12 text-white animate-spin mb-4" />
                     <p className="text-white text-sm">Meminta izin akses kamera...</p>
-                    <p className="text-white/60 text-xs mt-2">Tunggu sebentar...</p>
                 </div>
             )}
 
@@ -250,21 +224,24 @@ export default function ScanPage() {
                         autoPlay
                         playsInline
                         muted
-                        webkit-playsinline="true"
-                        className="fixed inset-0 w-full h-full object-cover bg-black"
+                        className="fixed inset-0 w-full h-full object-cover"
                         style={{ zIndex: 1 }}
                     />
 
                     {/* Scan Frame Overlay */}
                     <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 10 }}>
+                        {/* Dark overlay with transparent center */}
                         <div className="absolute inset-0 bg-black/50" />
 
+                        {/* Scan frame */}
                         <div className="relative w-72 h-48 z-20">
+                            {/* Corner borders */}
                             <div className="absolute top-0 left-0 w-12 h-12 border-t-4 border-l-4 border-white rounded-tl-2xl" />
                             <div className="absolute top-0 right-0 w-12 h-12 border-t-4 border-r-4 border-white rounded-tr-2xl" />
                             <div className="absolute bottom-0 left-0 w-12 h-12 border-b-4 border-l-4 border-white rounded-bl-2xl" />
                             <div className="absolute bottom-0 right-0 w-12 h-12 border-b-4 border-r-4 border-white rounded-br-2xl" />
 
+                            {/* Scanning line animation */}
                             {isScanning && (
                                 <div className="absolute inset-x-0 top-0 h-1 bg-primary shadow-lg shadow-primary/50 animate-scan" />
                             )}
@@ -299,7 +276,7 @@ export default function ScanPage() {
                 </>
             )}
 
-            {/* Success Modal */}
+            {/* Success Modal - Barcode Detected */}
             <Modal
                 isOpen={showSuccessModal}
                 onClose={handleSuccessClose}
@@ -342,11 +319,15 @@ export default function ScanPage() {
                 </div>
             </Modal>
 
-            {/* CSS Animation */}
+            {/* CSS for scanning animation */}
             <style jsx>{`
                 @keyframes scan {
-                    0%, 100% { top: 0; }
-                    50% { top: calc(100% - 4px); }
+                    0%, 100% {
+                        top: 0;
+                    }
+                    50% {
+                        top: calc(100% - 4px);
+                    }
                 }
                 .animate-scan {
                     animation: scan 2s ease-in-out infinite;
