@@ -1,12 +1,23 @@
-export default async function ProfilePage() {
-    return (
-        <div className="max-w-7xl mx-auto px-4 py-6">
-            
-            <div className="text-center py-20">
-                <h1 className="text-2xl font-bold text-gray-900 mb-2">Profile</h1>
-                <p className="text-gray-500">Halaman profil user</p>
-            </div>
+import { redirect } from 'next/navigation'
+import { getUserFromCookie } from '@/utils/get-user'
+import DashboardProfileClient from '../../../components/DashboardProfileClient'
 
-        </div>
-    )
+export default async function ProfilePage() {
+    const user = await getUserFromCookie()
+
+    if (!user) {
+        redirect('/login')
+    }
+
+    const userData = {
+        id: user.id,
+        username: user.username,
+        nama_lengkap: user.nama_lengkap || user.full_name || 'User',
+        email: user.email || null,
+        telepon: user.telepon || null,
+        role: user.role || 'guru',
+        foto_url: user.foto_url || null,
+    }
+
+    return <DashboardProfileClient user={userData} />
 }
